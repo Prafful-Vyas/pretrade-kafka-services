@@ -1,0 +1,39 @@
+spring:
+  application.name: order-gateway
+  datasource:
+    url: ${DB_URL:jdbc:sqlserver://localhost:1433;databaseName=pretrade;encrypt=true;trustServerCertificate=true}
+    username: ${DB_USER:pretrade_app}
+    password: ${DB_PASSWORD:}
+    hikari.maximum-pool-size: 20
+  jpa:
+    open-in-view: false
+    hibernate.ddl-auto: validate   # Flyway owns the schema; Hibernate only checks it matches the entities
+  flyway:
+    locations: classpath:db/migration/{vendor}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    consumer:
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+    listener:
+      ack-mode: record
+  jackson:
+    serialization.write-dates-as-timestamps: false
+  mvc:
+    problemdetails.enabled: true
+
+outbox:
+  poll-interval-ms: 100
+
+springdoc:
+  api-docs.path: /v3/api-docs
+  swagger-ui.path: /swagger-ui.html
+
+management:
+  endpoints.web.exposure.include: health,info,prometheus
+  endpoint.health.probes.enabled: true

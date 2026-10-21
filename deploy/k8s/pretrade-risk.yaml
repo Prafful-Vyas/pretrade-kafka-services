@@ -1,0 +1,61 @@
+# pretrade-risk on Kubernetes/OpenShift. Replicas <= partitions of orders.requested (6):
+# extra pods would sit idle, because each partition has exactly one consumer in the group.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pretrade-risk
+  labels: { app.kubernetes.io/name: pretrade-risk }
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app.kubernetes.io/name: pretrade-risk }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: pretrade-risk }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: "8080"
+    spec:
+      terminationGracePeriodSeconds: 30   # lets the consumer commit and leave the group cleanly
+      containers:
+        - name: pretrade-risk
+          image: registry.example.internal/markets/pretrade-risk:1.0.0
+          ports: [{ name: http, containerPort: 8080 }]
+          env:
+            - { name: KAFKA_BOOTSTRAP, value: "kafka-bootstrap.kafka.svc:9092" }
+            - { name: JAVA_TOOL_OPTIONS, value: "-XX:+UseZGC -XX:+ZGenerational" }
+          resources:
+            requests: { cpu: "1", memory: 1Gi }
+            limits: { memory: 1Gi }
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts: [{ name: tmp, mountPath: /tmp }]
+      volumes: [{ name: tmp, emptyDir: {} }]
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app.kubernetes.io/name: pretrade-risk }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pretrade-risk
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: pretrade-risk }

@@ -1,0 +1,50 @@
+# Local stack: single-node Kafka (KRaft), SQL Server 2022, both services.
+#   docker compose up --build
+#   open http://localhost:8080/swagger-ui.html
+services:
+  kafka:
+    image: apache/kafka:3.8.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      retries: 10
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?set MSSQL_SA_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'IF DB_ID(''pretrade'') IS NULL CREATE DATABASE pretrade'"]
+      interval: 10s
+      retries: 20
+
+  order-gateway:
+    build: { context: ., args: { SERVICE: order-gateway } }
+    ports: ["8080:8080"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      DB_URL: jdbc:sqlserver://sqlserver:1433;databaseName=pretrade;encrypt=true;trustServerCertificate=true
+      DB_USER: sa
+      DB_PASSWORD: ${MSSQL_SA_PASSWORD}
+    depends_on:
+      kafka: { condition: service_healthy }
+      sqlserver: { condition: service_healthy }
+
+  pretrade-risk:
+    build: { context: ., args: { SERVICE: pretrade-risk } }
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      SERVER_PORT: 8081
+    depends_on:
+      kafka: { condition: service_healthy }

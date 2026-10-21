@@ -1,0 +1,14 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17", cache: maven }
+      - run: mvn -B verify
+      - name: build images
+        run: |
+          docker build --build-arg SERVICE=order-gateway -t order-gateway:${{ github.sha }} .
+          docker build --build-arg SERVICE=pretrade-risk -t pretrade-risk:${{ github.sha }} .
